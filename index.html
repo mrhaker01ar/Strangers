@@ -4,181 +4,125 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Strangers</title>
-  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
   <style>
-    body {
-      margin: 0;
-      padding: 0;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: linear-gradient(120deg, #0f0c29, #302b63, #24243e);
-      color: #fff;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    h1 {
-      margin: 20px 0;
-    }
-    video {
-      width: 300px;
-      height: 220px;
-      background: #000;
-      border-radius: 12px;
-      margin: 10px;
-    }
-    .video-container {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 20px;
-    }
-    button {
-      margin-top: 10px;
-      padding: 10px 20px;
-      font-size: 16px;
-      border: none;
-      border-radius: 10px;
-      background: #ff416c;
-      color: white;
-      cursor: pointer;
-    }
-    #chatBox {
-      width: 90%;
-      max-width: 600px;
-      height: 150px;
-      overflow-y: auto;
-      background: #111;
-      border-radius: 8px;
-      padding: 10px;
-      margin: 10px auto;
-    }
-    #chatInputContainer {
-      width: 90%;
-      max-width: 600px;
-      display: flex;
-      gap: 10px;
-      margin-bottom: 20px;
-    }
-    #chatInput {
-      flex: 1;
-      padding: 10px;
-      border-radius: 8px;
-      border: none;
-    }
-    #sendBtn {
-      padding: 10px 15px;
-      border-radius: 8px;
-      border: none;
-      background: #28a745;
-      color: white;
-      cursor: pointer;
-    }
+    video { max-height: 300px; border-radius: 0.5rem; }
+    #messages { max-height: 200px; overflow-y: auto; }
   </style>
 </head>
-<body>
-  <h1>Strangers</h1>
-  <div class="video-container">
-    <video id="localVideo" autoplay muted></video>
-    <video id="remoteVideo" autoplay></video>
-  </div>
-  <button id="nextBtn">Next Stranger</button>
+<body class="bg-gray-900 text-white font-sans">
+  <div class="container mx-auto p-4">
+    <h1 class="text-4xl font-bold text-center text-indigo-400 mb-4">Strangers</h1>
 
-  <div id="chatBox"></div>
-  <div id="chatInputContainer">
-    <input type="text" id="chatInput" placeholder="Type a message...">
-    <button id="sendBtn">Send</button>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <video id="localVideo" autoplay muted class="w-full bg-black"></video>
+      <video id="remoteVideo" autoplay class="w-full bg-black"></video>
+    </div>
+
+    <div class="bg-gray-800 p-4 rounded shadow mb-4">
+      <div id="messages" class="mb-2 space-y-1"></div>
+      <div class="flex space-x-2">
+        <input id="messageInput" type="text" placeholder="Type a message..." class="flex-grow p-2 rounded text-black" />
+        <button id="sendButton" class="bg-indigo-500 px-4 py-2 rounded hover:bg-indigo-600">Send</button>
+      </div>
+    </div>
+
+    <div class="text-center">
+      <button id="nextButton" class="bg-red-500 px-6 py-3 rounded hover:bg-red-600">Next Stranger</button>
+    </div>
   </div>
 
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
   <script>
     const socket = io('https://strangers-t7wm.onrender.com');
     const localVideo = document.getElementById('localVideo');
     const remoteVideo = document.getElementById('remoteVideo');
-    const nextBtn = document.getElementById('nextBtn');
-    const chatBox = document.getElementById('chatBox');
-    const chatInput = document.getElementById('chatInput');
-    const sendBtn = document.getElementById('sendBtn');
+    const messageInput = document.getElementById('messageInput');
+    const sendButton = document.getElementById('sendButton');
+    const messagesDiv = document.getElementById('messages');
+    const nextButton = document.getElementById('nextButton');
 
-    let localStream;
-    let peerConnection;
-    const config = {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' }
-      ]
-    };
+    let localStream, peerConnection;
+    const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-      .then(stream => {
-        localStream = stream;
-        localVideo.srcObject = stream;
-        socket.emit('ready');
-      });
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
+      localStream = stream;
+      localVideo.srcObject = stream;
+    });
 
-    socket.on('offer', async (offer) => {
+    function createPeerConnection() {
+      const pc = new RTCPeerConnection(config);
+
+      pc.onicecandidate = event => {
+        if (event.candidate) socket.emit('ice-candidate', event.candidate);
+      };
+
+      pc.ontrack = event => {
+        remoteVideo.srcObject = event.streams[0];
+      };
+
+      return pc;
+    }
+
+    socket.on('ready', async () => {
       peerConnection = createPeerConnection();
+      localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      socket.emit('offer', offer);
+    });
+
+    socket.on('offer', async offer => {
+      peerConnection = createPeerConnection();
+      localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
       await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
       socket.emit('answer', answer);
     });
 
-    socket.on('answer', async (answer) => {
-      await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+    socket.on('answer', answer => {
+      peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
     });
 
     socket.on('ice-candidate', candidate => {
       peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
     });
 
-    socket.on('ready', async () => {
-      peerConnection = createPeerConnection();
-      localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-      const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
-      socket.emit('offer', offer);
-    });
-
-    nextBtn.addEventListener('click', () => {
-      location.reload();
-    });
-
-    function createPeerConnection() {
-      const pc = new RTCPeerConnection(config);
-      pc.onicecandidate = event => {
-        if (event.candidate) {
-          socket.emit('ice-candidate', event.candidate);
-        }
-      };
-      pc.ontrack = event => {
-        remoteVideo.srcObject = event.streams[0];
-      };
-      return pc;
-    }
-
-    sendBtn.addEventListener('click', () => {
-      const msg = chatInput.value.trim();
-      if (msg) {
-        socket.emit('chat-message', msg);
-        appendMessage('You', msg);
-        chatInput.value = '';
-      }
-    });
-
-    chatInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
-        sendBtn.click();
-      }
-    });
-
-    socket.on('chat-message', (msg) => {
-      appendMessage('Stranger', msg);
-    });
-
-    function appendMessage(sender, text) {
+    socket.on('chat-message', msg => {
       const div = document.createElement('div');
-      div.innerHTML = `<strong>${sender}:</strong> ${text}`;
-      chatBox.appendChild(div);
-      chatBox.scrollTop = chatBox.scrollHeight;
+      div.textContent = 'Stranger: ' + msg;
+      messagesDiv.appendChild(div);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    });
+
+    socket.on('partner-disconnected', () => {
+      remoteVideo.srcObject = null;
+      const div = document.createElement('div');
+      div.textContent = 'Stranger disconnected.';
+      messagesDiv.appendChild(div);
+    });
+
+    sendButton.onclick = sendMessage;
+    messageInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') sendMessage();
+    });
+
+    function sendMessage() {
+      const msg = messageInput.value;
+      if (!msg) return;
+      socket.emit('chat-message', msg);
+
+      const div = document.createElement('div');
+      div.textContent = 'You: ' + msg;
+      messagesDiv.appendChild(div);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      messageInput.value = '';
     }
+
+    nextButton.onclick = () => location.reload();
   </script>
 </body>
 </html>
