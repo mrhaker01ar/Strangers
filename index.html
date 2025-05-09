@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Omegle Clone - Video Chat</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Roboto', sans-serif;
+      background: linear-gradient(to right, #000000, #434343);
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    h1 {
+      font-size: 32px;
+      margin-bottom: 10px;
+    }
+    .video-container {
+      display: flex;
+      gap: 20px;
+      margin: 20px;
+    }
+    video {
+      width: 320px;
+      height: 240px;
+      background: #111;
+      border: 3px solid #666;
+      border-radius: 12px;
+    }
+    button {
+      margin-top: 10px;
+      padding: 10px 20px;
+      background: #ff0057;
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    button:hover {
+      background: #ff3377;
+    }
+  </style>
+</head>
+<body>
+  
+  <h1>Talk to a Stranger 👀</h1>
+  <div class="video-container">
+    <video id="localVideo" autoplay muted playsinline></video>
+    <video id="remoteVideo" autoplay playsinline></video>
+  </div>
+  <button id="nextBtn">Next Stranger 🔁</button>
+
+  <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
+  <script>
+    const chatBox = document.getElementById('chatBox');
+const chatInput = document.getElementById('chatInput');
+
+chatInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter' && chatInput.value.trim()) {
+    socket.emit('chat-message', chatInput.value.trim());
+    appendMessage('You', chatInput.value.trim());
+    chatInput.value = '';
+  }
+});
+
+socket.on('chat-message', (msg) => {
+  appendMessage('Stranger', msg);
+});
+
+function appendMessage(sender, text) {
+  const div = document.createElement('div');
+  div.innerHTML = `<strong>${sender}:</strong> ${text}`;
+  div.style.marginBottom = '6px';
+  chatBox.appendChild(div);
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+    const socket = io();
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const nextBtn = document.getElementById('nextBtn');
+
+    let peerConnection;
+    const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      .then(stream => {
+        localVideo.srcObject = stream;
+
+        socket.on('partner-found', () => {
+          peerConnection = createPeerConnection(stream);
+          peerConnection.createOffer()
+            .then(offer => peerConnection.setLocalDescription(offer))
+            .then(() => socket.emit('signal', { type: 'offer', sdp: peerConnection.localDescription }));
+        });
+
+        nextBtn.onclick = () => {
+          if (peerConnection) peerConnection.close();
+          remoteVideo.srcObject = null;
+          socket.emit('next');
+        };
+      });
+
+    socket.on('signal', async (data) => {
+      if (!peerConnection) {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        localVideo.srcObject = stream;
+        peerConnection = createPeerConnection(stream);
+      }
+
+      if (data.type === 'offer') {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        socket.emit('signal', { type: 'answer', sdp: peerConnection.localDescription });
+      } else if (data.type === 'answer') {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+      } else if (data.type === 'candidate') {
+        try {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } catch (e) {
+          console.error('Error adding ICE candidate', e);
+        }
+      }
+    });
+
+    function createPeerConnection(stream) {
+      const pc = new RTCPeerConnection(config);
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+      pc.ontrack = (event) => {
+        remoteVideo.srcObject = event.streams[0];
+      };
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit('signal', { type: 'candidate', candidate: event.candidate });
+        }
+      };
+
+      return pc;
+    }
+
+    socket.on('partner-disconnected', () => {
+      alert('Your partner has disconnected. Searching for a new one...');
+      remoteVideo.srcObject = null;
+      if (peerConnection) peerConnection.close();
+      socket.emit('next');
+    });
+  </script>
+  
+  <div style="width: 680px; max-width: 90%; margin-top: 20px;">
+  <div id="chatBox" style="height: 150px; overflow-y: auto; background: #222; border-radius: 8px; padding: 10px; margin-bottom: 10px;"></div>
+  <input type="text" id="chatInput" placeholder="Type a message..." style="width: 100%; padding: 10px; border-radius: 8px; border: none;" />
+</div>
+
+</body>
+</html>
