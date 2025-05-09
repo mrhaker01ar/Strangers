@@ -1,72 +1,70 @@
-// Backend (server.js)
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const path = require('path');
+const cors = require('cors');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: '*',
-  },
-});
-
-app.use(express.static(path.join(__dirname)));
-
-let waitingUser = null;
-
-io.on('connection', (socket) => {
-  console.log('A user connected:', socket.id);
-
-  if (waitingUser) {
-    socket.partner = waitingUser;
-    waitingUser.partner = socket;
-
-    socket.emit('partner-found');
-    waitingUser.emit('partner-found');
-
-    waitingUser = null;
-  } else {
-    waitingUser = socket;
-  }
-  socket.on('chat-message', (msg) => {
-  if (socket.partner) {
-    socket.partner.emit('chat-message', msg);
+    methods: ['GET', 'POST']
   }
 });
 
+app.use(cors());
 
-  socket.on('signal', (data) => {
-    if (socket.partner) {
-      socket.partner.emit('signal', data);
+let waitingSocket = null;
+
+io.on('connection', socket => {
+  console.log('🔌 New user connected:', socket.id);
+
+  socket.on('join', () => {
+    if (waitingSocket) {
+      // Pair them
+      socket.partner = waitingSocket;
+      waitingSocket.partner = socket;
+
+      socket.emit('ready');
+      waitingSocket.emit('ready');
+
+      waitingSocket = null;
+    } else {
+      waitingSocket = socket;
     }
   });
 
-  socket.on('next', () => {
+  socket.on('offer', offer => {
     if (socket.partner) {
-      socket.partner.emit('partner-disconnected');
-      socket.partner.partner = null;
+      socket.partner.emit('offer', offer);
     }
-    socket.partner = null;
-    if (waitingUser) {
-      socket.partner = waitingUser;
-      waitingUser.partner = socket;
+  });
 
-      socket.emit('partner-found');
-      waitingUser.emit('partner-found');
+  socket.on('answer', answer => {
+    if (socket.partner) {
+      socket.partner.emit('answer', answer);
+    }
+  });
 
-      waitingUser = null;
-    } else {
-      waitingUser = socket;
+  socket.on('ice-candidate', candidate => {
+    if (socket.partner) {
+      socket.partner.emit('ice-candidate', candidate);
+    }
+  });
+
+  socket.on('chat-message', msg => {
+    if (socket.partner) {
+      socket.partner.emit('chat-message', msg);
     }
   });
 
   socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
-    if (waitingUser === socket) {
-      waitingUser = null;
+    console.log('❌ User disconnected:', socket.id);
+
+    if (waitingSocket === socket) {
+      waitingSocket = null;
     }
+
     if (socket.partner) {
       socket.partner.emit('partner-disconnected');
       socket.partner.partner = null;
@@ -75,6 +73,5 @@ io.on('connection', (socket) => {
 });
 
 server.listen(3000, () => {
-  console.log('Server listening on port 3000');
+  console.log('🚀 Server running on http://localhost:3000');
 });
-
