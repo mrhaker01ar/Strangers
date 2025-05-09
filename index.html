@@ -19,6 +19,11 @@
       <video id="remoteVideo" autoplay class="w-full bg-black"></video>
     </div>
 
+    <div class="flex justify-center space-x-4 mb-4">
+      <button id="toggleCamera" class="bg-yellow-500 px-4 py-2 rounded hover:bg-yellow-600">Toggle Camera</button>
+      <button id="toggleMic" class="bg-yellow-500 px-4 py-2 rounded hover:bg-yellow-600">Toggle Mic</button>
+    </div>
+
     <div class="bg-gray-800 p-4 rounded shadow mb-4">
       <div id="messages" class="mb-2 space-y-1"></div>
       <div class="flex space-x-2">
@@ -34,21 +39,31 @@
 
   <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
   <script>
-    const socket = io('https://strangers-t7wm.onrender.com');
+    const socket = io('https://your-backend.onrender.com');
     const localVideo = document.getElementById('localVideo');
     const remoteVideo = document.getElementById('remoteVideo');
     const messageInput = document.getElementById('messageInput');
     const sendButton = document.getElementById('sendButton');
     const messagesDiv = document.getElementById('messages');
     const nextButton = document.getElementById('nextButton');
+    const toggleCamera = document.getElementById('toggleCamera');
+    const toggleMic = document.getElementById('toggleMic');
 
     let localStream, peerConnection;
     const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    let cameraEnabled = true;
+    let micEnabled = true;
 
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
-      localStream = stream;
-      localVideo.srcObject = stream;
-    });
+    async function initMedia() {
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        localVideo.srcObject = localStream;
+        socket.emit('join');
+      } catch (err) {
+        alert('Unable to access camera and microphone. Please allow permission.');
+        console.error(err);
+      }
+    }
 
     function createPeerConnection() {
       const pc = new RTCPeerConnection(config);
@@ -65,6 +80,7 @@
     }
 
     socket.on('ready', async () => {
+      appendMessage('Stranger connected.');
       peerConnection = createPeerConnection();
       localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
@@ -74,6 +90,7 @@
     });
 
     socket.on('offer', async offer => {
+      appendMessage('Stranger connected.');
       peerConnection = createPeerConnection();
       localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
@@ -92,17 +109,12 @@
     });
 
     socket.on('chat-message', msg => {
-      const div = document.createElement('div');
-      div.textContent = 'Stranger: ' + msg;
-      messagesDiv.appendChild(div);
-      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      appendMessage('Stranger: ' + msg);
     });
 
     socket.on('partner-disconnected', () => {
       remoteVideo.srcObject = null;
-      const div = document.createElement('div');
-      div.textContent = 'Stranger disconnected.';
-      messagesDiv.appendChild(div);
+      appendMessage('Stranger disconnected.');
     });
 
     sendButton.onclick = sendMessage;
@@ -114,15 +126,32 @@
       const msg = messageInput.value;
       if (!msg) return;
       socket.emit('chat-message', msg);
-
-      const div = document.createElement('div');
-      div.textContent = 'You: ' + msg;
-      messagesDiv.appendChild(div);
-      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      appendMessage('You: ' + msg);
       messageInput.value = '';
     }
 
+    function appendMessage(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      messagesDiv.appendChild(div);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    toggleCamera.onclick = () => {
+      cameraEnabled = !cameraEnabled;
+      localStream.getVideoTracks()[0].enabled = cameraEnabled;
+      toggleCamera.textContent = cameraEnabled ? 'Turn Off Camera' : 'Turn On Camera';
+    };
+
+    toggleMic.onclick = () => {
+      micEnabled = !micEnabled;
+      localStream.getAudioTracks()[0].enabled = micEnabled;
+      toggleMic.textContent = micEnabled ? 'Turn Off Mic' : 'Turn On Mic';
+    };
+
     nextButton.onclick = () => location.reload();
+
+    initMedia();
   </script>
 </body>
 </html>
