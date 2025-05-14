@@ -2,172 +2,206 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Strangers</title>
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Strangers - Talk to Random People</title>
   <style>
-    video { max-height: 300px; border-radius: 0.5rem; }
-    #messages { max-height: 200px; overflow-y: auto; }
+    body {
+      font-family: Arial, sans-serif;
+      background: #111;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+    video {
+      width: 300px;
+      margin: 10px;
+      border: 2px solid #444;
+    }
+    #chat {
+      max-width: 600px;
+      width: 100%;
+      margin-top: 20px;
+    }
+    #messages {
+      height: 200px;
+      overflow-y: scroll;
+      background: #222;
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 10px;
+    }
+    #messageInput {
+      width: 80%;
+    }
+    .filters, .controls {
+      margin: 10px;
+    }
   </style>
 </head>
-<body class="bg-gray-900 text-white font-sans">
-  <div class="container mx-auto p-4">
-    <h1 class="text-4xl font-bold text-center text-indigo-400 mb-4">Strangers</h1>
+<body>
+  <h1>👤 Strangers</h1>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-      <video id="localVideo" autoplay muted class="w-full bg-black"></video>
-      <video id="remoteVideo" autoplay class="w-full bg-black"></video>
-    </div>
-
-    <div class="flex justify-center space-x-4 mb-4">
-      <button id="toggleCamera" class="bg-yellow-500 px-4 py-2 rounded hover:bg-yellow-600">Toggle Camera</button>
-      <button id="toggleMic" class="bg-yellow-500 px-4 py-2 rounded hover:bg-yellow-600">Toggle Mic</button>
-    </div>
-
-    <div class="bg-gray-800 p-4 rounded shadow mb-4">
-      <div id="messages" class="mb-2 space-y-1"></div>
-      <div class="flex space-x-2">
-        <input id="messageInput" type="text" placeholder="Type a message..." class="flex-grow p-2 rounded text-black" />
-        <button id="sendButton" class="bg-indigo-500 px-4 py-2 rounded hover:bg-indigo-600">Send</button>
-      </div>
-    </div>
-
-    <div class="text-center">
-      <button id="nextButton" class="bg-red-500 px-6 py-3 rounded hover:bg-red-600">Next Stranger</button>
-    </div>
+  <div class="filters">
+    <label>
+      Gender:
+      <select id="userGender">
+        <option value="any">Any</option>
+        <option value="male">Male</option>
+        <option value="female">Female</option>
+      </select>
+    </label>
+    <label>
+      Looking for:
+      <select id="lookingFor">
+        <option value="any">Any</option>
+        <option value="male">Male</option>
+        <option value="female">Female</option>
+      </select>
+    </label>
+    <label>
+      Region:
+      <select id="region">
+        <option value="any">Any</option>
+        <option value="asia">Asia</option>
+        <option value="europe">Europe</option>
+        <option value="america">America</option>
+      </select>
+    </label>
+    <button id="startChat">Start Chat</button>
   </div>
 
-  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <div class="controls">
+    <button onclick="toggleMic()">🎤 Mic On/Off</button>
+    <button onclick="toggleCam()">📷 Cam On/Off</button>
+    <div id="timer"></div>
+  </div>
+
+  <video id="localVideo" autoplay muted playsinline></video>
+  <video id="remoteVideo" autoplay playsinline></video>
+
+  <div id="chat">
+    <div id="messages"></div>
+    <input id="messageInput" type="text" placeholder="Say something..." />
+    <button onclick="sendMessage()">Send</button>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
   <script>
-  const socket = io('https://your-backend.onrender.com'); // change to your deployed backend
-  const localVideo = document.getElementById('localVideo');
-  const remoteVideo = document.getElementById('remoteVideo');
-  const messageInput = document.getElementById('messageInput');
-  const sendButton = document.getElementById('sendButton');
-  const messagesDiv = document.getElementById('messages');
-  const nextButton = document.getElementById('nextButton');
-  const toggleCamera = document.getElementById('toggleCamera');
-  const toggleMic = document.getElementById('toggleMic');
-  
-  let localStream, remoteStream, peerConnection;
-  const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-  let cameraEnabled = true;
-  let micEnabled = true;
-  
-  async function initMedia() {
-    try {
+    const socket = io('https://strangers-t7wm.onrender.com');
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const messages = document.getElementById('messages');
+    const input = document.getElementById('messageInput');
+    let localStream, peer, timerInterval, seconds = 0;
+    let audioEnabled = true, videoEnabled = true;
+
+    async function getMedia() {
       localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       localVideo.srcObject = localStream;
-      socket.emit('join');
-    } catch (err) {
-      alert('Camera/Mic permission is required!');
-      console.error(err);
     }
-  }
-  
-  function createPeerConnection() {
-    peerConnection = new RTCPeerConnection(config);
-  
-    // Add local tracks to connection
-    localStream.getTracks().forEach(track => {
-      peerConnection.addTrack(track, localStream);
+
+    document.getElementById('startChat').onclick = async () => {
+      await getMedia();
+      const gender = document.getElementById('userGender').value;
+      const lookingFor = document.getElementById('lookingFor').value;
+      const region = document.getElementById('region').value;
+      socket.emit('join', { gender, lookingFor, region });
+    };
+
+    socket.on('ready', async () => {
+      createPeer();
+      localStream.getTracks().forEach(track => peer.addTrack(track, localStream));
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      socket.emit('offer', offer);
+      startTimer();
+      appendMessage('Stranger connected.');
     });
-  
-    // When remote stream is received
-    peerConnection.ontrack = event => {
-      if (!remoteStream) {
-        remoteStream = new MediaStream();
-        remoteVideo.srcObject = remoteStream;
-      }
-      remoteStream.addTrack(event.track);
-    };
-  
-    peerConnection.onicecandidate = event => {
-      if (event.candidate) socket.emit('ice-candidate', event.candidate);
-    };
-  }
-  
-  socket.on('ready', async () => {
-    appendMessage('Stranger connected.');
-    createPeerConnection();
-    const offer = await peerConnection.createOffer();
-    await peerConnection.setLocalDescription(offer);
-    socket.emit('offer', offer);
-  });
-  
-  socket.on('offer', async offer => {
-    appendMessage('Stranger connected.');
-    createPeerConnection();
-    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer = await peerConnection.createAnswer();
-    await peerConnection.setLocalDescription(answer);
-    socket.emit('answer', answer);
-  });
-  
-  socket.on('answer', async answer => {
-    await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-  });
-  
-  socket.on('ice-candidate', async candidate => {
-    if (peerConnection) {
-      try {
-        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (e) {
-        console.error('Error adding received ice candidate', e);
-      }
+
+    socket.on('offer', async offer => {
+      createPeer();
+      await peer.setRemoteDescription(new RTCSessionDescription(offer));
+      localStream.getTracks().forEach(track => peer.addTrack(track, localStream));
+      const answer = await peer.createAnswer();
+      await peer.setLocalDescription(answer);
+      socket.emit('answer', answer);
+      startTimer();
+      appendMessage('Stranger connected.');
+    });
+
+    socket.on('answer', async answer => {
+      await peer.setRemoteDescription(new RTCSessionDescription(answer));
+    });
+
+    socket.on('ice-candidate', candidate => {
+      peer.addIceCandidate(new RTCIceCandidate(candidate));
+    });
+
+    socket.on('chat-message', msg => {
+      appendMessage('Stranger: ' + msg);
+    });
+
+    socket.on('partner-disconnected', () => {
+      appendMessage('Stranger disconnected.');
+      clearInterval(timerInterval);
+      document.getElementById('timer').textContent = '';
+      if (remoteVideo.srcObject) remoteVideo.srcObject.getTracks().forEach(t => t.stop());
+      remoteVideo.srcObject = null;
+    });
+
+    function sendMessage() {
+      const msg = input.value.trim();
+      if (!msg) return;
+      appendMessage('You: ' + msg);
+      socket.emit('chat-message', msg);
+      input.value = '';
     }
-  });
-  
-  socket.on('chat-message', msg => {
-    appendMessage('Stranger: ' + msg);
-  });
-  
-  socket.on('partner-disconnected', () => {
-    appendMessage('Stranger disconnected.');
-    remoteVideo.srcObject = null;
-    if (peerConnection) peerConnection.close();
-    peerConnection = null;
-  });
-  
-  sendButton.onclick = sendMessage;
-  messageInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') sendMessage();
-  });
-  
-  function sendMessage() {
-    const msg = messageInput.value;
-    if (!msg) return;
-    socket.emit('chat-message', msg);
-    appendMessage('You: ' + msg);
-    messageInput.value = '';
-  }
-  
-  function appendMessage(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    messagesDiv.appendChild(div);
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-  }
-  
-  toggleCamera.onclick = () => {
-    cameraEnabled = !cameraEnabled;
-    localStream.getVideoTracks()[0].enabled = cameraEnabled;
-    toggleCamera.textContent = cameraEnabled ? 'Turn Off Camera' : 'Turn On Camera';
-  };
-  
-  toggleMic.onclick = () => {
-    micEnabled = !micEnabled;
-    localStream.getAudioTracks()[0].enabled = micEnabled;
-    toggleMic.textContent = micEnabled ? 'Turn Off Mic' : 'Turn On Mic';
-  };
-  
-  nextButton.onclick = () => location.reload();
-  
-  initMedia();
-    
-    
-    
-    
+
+    input.addEventListener('keypress', e => {
+      if (e.key === 'Enter') sendMessage();
+    });
+
+    function appendMessage(msg) {
+      const div = document.createElement('div');
+      div.textContent = msg;
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    function createPeer() {
+      peer = new RTCPeerConnection();
+      peer.onicecandidate = e => {
+        if (e.candidate) socket.emit('ice-candidate', e.candidate);
+      };
+      peer.ontrack = e => {
+        remoteVideo.srcObject = e.streams[0];
+      };
+    }
+
+    function toggleMic() {
+      if (!localStream) return;
+      audioEnabled = !audioEnabled;
+      localStream.getAudioTracks().forEach(track => track.enabled = audioEnabled);
+    }
+
+    function toggleCam() {
+      if (!localStream) return;
+      videoEnabled = !videoEnabled;
+      localStream.getVideoTracks().forEach(track => track.enabled = videoEnabled);
+    }
+
+    function startTimer() {
+      clearInterval(timerInterval);
+      seconds = 0;
+      timerInterval = setInterval(() => {
+        seconds++;
+        const min = Math.floor(seconds / 60);
+        const sec = seconds % 60;
+        document.getElementById('timer').textContent = `⏱ Connected: ${min}:${sec < 10 ? '0' : ''}${sec}`;
+      }, 1000);
+    }
   </script>
 </body>
 </html>
