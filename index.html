@@ -2,113 +2,164 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Strangers - Talk to Random People</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Strangers - Video Chat</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #111;
-      color: #fff;
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body, html {
+      height: 100%;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      overflow: hidden;
+      color: white;
+    }
+    video.bg-video {
+      position: fixed;
+      top: 0;
+      left: 0;
+      min-width: 100%;
+      min-height: 100%;
+      object-fit: cover;
+      z-index: -1;
+      filter: brightness(0.4);
+    }
+    .container {
+      position: relative;
+      padding: 20px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 20px;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.4);
     }
-    video {
+    h1 {
+      margin-bottom: 20px;
+      font-size: 3rem;
+      text-shadow: 0 0 10px #00f7ff;
+    }
+    .videos {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    video.user-video {
       width: 300px;
-      margin: 10px;
-      border: 2px solid #444;
+      height: 220px;
+      border: 3px solid #00f7ff;
+      border-radius: 10px;
+      background: black;
+    }
+    .controls {
+      margin-bottom: 20px;
+    }
+    select, button {
+      padding: 10px;
+      margin: 5px;
+      border-radius: 5px;
+      border: none;
+      font-size: 1rem;
     }
     #chat {
       max-width: 600px;
       width: 100%;
-      margin-top: 20px;
     }
     #messages {
-      height: 200px;
-      overflow-y: scroll;
-      background: #222;
+      height: 150px;
+      overflow-y: auto;
+      background: rgba(255, 255, 255, 0.1);
       padding: 10px;
       border-radius: 8px;
       margin-bottom: 10px;
     }
-    #messageInput {
+    input[type="text"] {
       width: 80%;
+      padding: 10px;
+      border-radius: 5px;
+      border: none;
     }
-    .filters, .controls {
-      margin: 10px;
+    #sendBtn {
+      padding: 10px 15px;
+      background: #00f7ff;
+      color: #000;
+      font-weight: bold;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+    #timer {
+      margin-top: 10px;
+      font-size: 1.2rem;
     }
   </style>
 </head>
 <body>
-  <h1>👤 Strangers</h1>
+  <video autoplay loop muted class="bg-video">
+    <source src="https://videos.pexels.com/video-files/5091624/5091624-hd_1920_1080_24fps.mp4" type="video/webm">
+  </video>
 
-  <div class="filters">
-    <label>
-      Gender:
+  <div class="container">
+    <h1>Strangers</h1>
+
+    <div class="controls">
       <select id="userGender">
-        <option value="any">Any</option>
+        <option value="any">Your Gender</option>
         <option value="male">Male</option>
         <option value="female">Female</option>
       </select>
-    </label>
-    <label>
-      Looking for:
       <select id="lookingFor">
-        <option value="any">Any</option>
+        <option value="any">Looking for</option>
         <option value="male">Male</option>
         <option value="female">Female</option>
       </select>
-    </label>
-    <label>
-      Region:
       <select id="region">
-        <option value="any">Any</option>
+        <option value="any">Region</option>
         <option value="asia">Asia</option>
         <option value="europe">Europe</option>
         <option value="america">America</option>
       </select>
-    </label>
-    <button id="startChat">Start Chat</button>
-  </div>
+      <button onclick="startChat()">Start Chat</button>
+      <button onclick="toggleMic()">🎤 Mic</button>
+      <button onclick="toggleCam()">📷 Cam</button>
+    </div>
 
-  <div class="controls">
-    <button onclick="toggleMic()">🎤 Mic On/Off</button>
-    <button onclick="toggleCam()">📷 Cam On/Off</button>
-    <div id="timer"></div>
-  </div>
+    <div class="videos">
+      <video id="localVideo" autoplay muted playsinline class="user-video"></video>
+      <video id="remoteVideo" autoplay playsinline class="user-video"></video>
+    </div>
 
-  <video id="localVideo" autoplay muted playsinline></video>
-  <video id="remoteVideo" autoplay playsinline></video>
-
-  <div id="chat">
-    <div id="messages"></div>
-    <input id="messageInput" type="text" placeholder="Say something..." />
-    <button onclick="sendMessage()">Send</button>
+    <div id="chat">
+      <div id="messages"></div>
+      <input id="messageInput" type="text" placeholder="Say something..."/>
+      <button id="sendBtn" onclick="sendMessage()">Send</button>
+      <div id="timer"></div>
+    </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    const socket = io('https://strangers-t7wm.onrender.com');
+    const socket = io();
+    let localStream, peer;
     const localVideo = document.getElementById('localVideo');
     const remoteVideo = document.getElementById('remoteVideo');
     const messages = document.getElementById('messages');
     const input = document.getElementById('messageInput');
-    let localStream, peer, timerInterval, seconds = 0;
-    let audioEnabled = true, videoEnabled = true;
+    let audioEnabled = true, videoEnabled = true, timer, seconds = 0;
 
     async function getMedia() {
       localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       localVideo.srcObject = localStream;
     }
 
-    document.getElementById('startChat').onclick = async () => {
-      await getMedia();
-      const gender = document.getElementById('userGender').value;
-      const lookingFor = document.getElementById('lookingFor').value;
-      const region = document.getElementById('region').value;
-      socket.emit('join', { gender, lookingFor, region });
-    };
+    function startChat() {
+      getMedia().then(() => {
+        const gender = document.getElementById('userGender').value;
+        const lookingFor = document.getElementById('lookingFor').value;
+        const region = document.getElementById('region').value;
+        socket.emit('join', { gender, lookingFor, region });
+      });
+    }
 
     socket.on('ready', async () => {
       createPeer();
@@ -145,10 +196,9 @@
 
     socket.on('partner-disconnected', () => {
       appendMessage('Stranger disconnected.');
-      clearInterval(timerInterval);
-      document.getElementById('timer').textContent = '';
       if (remoteVideo.srcObject) remoteVideo.srcObject.getTracks().forEach(t => t.stop());
       remoteVideo.srcObject = null;
+      stopTimer();
     });
 
     function sendMessage() {
@@ -172,35 +222,34 @@
 
     function createPeer() {
       peer = new RTCPeerConnection();
-      peer.onicecandidate = e => {
-        if (e.candidate) socket.emit('ice-candidate', e.candidate);
-      };
-      peer.ontrack = e => {
-        remoteVideo.srcObject = e.streams[0];
-      };
+      peer.onicecandidate = e => e.candidate && socket.emit('ice-candidate', e.candidate);
+      peer.ontrack = e => remoteVideo.srcObject = e.streams[0];
     }
 
     function toggleMic() {
-      if (!localStream) return;
       audioEnabled = !audioEnabled;
-      localStream.getAudioTracks().forEach(track => track.enabled = audioEnabled);
+      localStream.getAudioTracks().forEach(t => t.enabled = audioEnabled);
     }
 
     function toggleCam() {
-      if (!localStream) return;
       videoEnabled = !videoEnabled;
-      localStream.getVideoTracks().forEach(track => track.enabled = videoEnabled);
+      localStream.getVideoTracks().forEach(t => t.enabled = videoEnabled);
     }
 
     function startTimer() {
-      clearInterval(timerInterval);
+      stopTimer();
       seconds = 0;
-      timerInterval = setInterval(() => {
+      timer = setInterval(() => {
         seconds++;
         const min = Math.floor(seconds / 60);
         const sec = seconds % 60;
-        document.getElementById('timer').textContent = `⏱ Connected: ${min}:${sec < 10 ? '0' : ''}${sec}`;
+        document.getElementById('timer').textContent = `⏱ ${min}:${sec < 10 ? '0' : ''}${sec}`;
       }, 1000);
+    }
+
+    function stopTimer() {
+      clearInterval(timer);
+      document.getElementById('timer').textContent = '';
     }
   </script>
 </body>
