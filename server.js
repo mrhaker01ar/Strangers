@@ -13,24 +13,36 @@ const io = new Server(server, {
 });
 
 app.use(cors());
+app.use(express.static('public'));
 
-let waitingSocket = null;
+let waitingUsers = [];
 
 io.on('connection', socket => {
   console.log('🔌 New user connected:', socket.id);
 
-  socket.on('join', () => {
-    if (waitingSocket) {
-      // Pair them
-      socket.partner = waitingSocket;
-      waitingSocket.partner = socket;
+  socket.on('join', userPrefs => {
+    socket.meta = userPrefs; // store user preferences
+
+    // Try to find a match
+    const matchIndex = waitingUsers.findIndex(s => {
+      if (!s.meta) return false;
+      const regionMatch = s.meta.region === 'any' || userPrefs.region === 'any' || s.meta.region === userPrefs.region;
+      const genderMatch =
+        (s.meta.lookingFor === 'any' || s.meta.lookingFor === userPrefs.gender) &&
+        (userPrefs.lookingFor === 'any' || userPrefs.lookingFor === s.meta.gender);
+      return regionMatch && genderMatch;
+    });
+
+    if (matchIndex !== -1) {
+      const partner = waitingUsers.splice(matchIndex, 1)[0];
+
+      socket.partner = partner;
+      partner.partner = socket;
 
       socket.emit('ready');
-      waitingSocket.emit('ready');
-
-      waitingSocket = null;
+      partner.emit('ready');
     } else {
-      waitingSocket = socket;
+      waitingUsers.push(socket);
     }
   });
 
@@ -61,9 +73,7 @@ io.on('connection', socket => {
   socket.on('disconnect', () => {
     console.log('❌ User disconnected:', socket.id);
 
-    if (waitingSocket === socket) {
-      waitingSocket = null;
-    }
+    waitingUsers = waitingUsers.filter(s => s !== socket);
 
     if (socket.partner) {
       socket.partner.emit('partner-disconnected');
